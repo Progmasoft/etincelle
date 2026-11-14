@@ -16,7 +16,7 @@ Etincelle is under development and has no release yet.
 | Artifact | What it holds |
 |---|---|
 | `com.progmasoft.etincelle:etincelle-core` | Column types (a sealed `DataType`), `Field` and `Schema`, whose names match without regard to case. |
-| `com.progmasoft.etincelle:etincelle-sql_2.13` | Etincelle SQL, starting with its names: plain names, names between backquotes, qualified names. `_2.13` is the Scala binary version of the Scala API this artifact will carry next to its Java one. |
+| `com.progmasoft.etincelle:etincelle-sql` | Etincelle SQL, starting with its names: plain names, names between backquotes, qualified names. |
 
 ```kotlin
 repositories {
@@ -24,7 +24,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.progmasoft.etincelle:etincelle-sql_2.13:$etincelleVersion")
+    implementation("com.progmasoft.etincelle:etincelle-sql:$etincelleVersion")
 }
 ```
 
