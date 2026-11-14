@@ -39,6 +39,8 @@ subprojects {
 
     tasks.withType<Javadoc>().configureEach {
         (options as StandardJavadocDocletOptions).addBooleanOption("Xdoclint:all,-missing", true)
+        // A Javadoc warning, such as a broken link or reference, fails the build.
+        (options as StandardJavadocDocletOptions).addBooleanOption("Xwerror", true)
     }
 
     dependencies {
@@ -64,7 +66,7 @@ subprojects {
     tasks.named<Jar>("jar") {
         manifest {
             attributes(
-                "Automatic-Module-Name" to "com.progmasoft." + project.name.substringBefore('_').replace('-', '.'),
+                "Automatic-Module-Name" to "com.progmasoft." + project.name.replace('-', '.'),
                 "Implementation-Title" to project.name,
                 "Implementation-Version" to project.version,
             )
