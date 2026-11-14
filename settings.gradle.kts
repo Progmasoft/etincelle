@@ -9,7 +9,6 @@ rootProject.name = "etincelle"
 include("etincelle-core")
 project(":etincelle-core").projectDir = file("core")
 
-// SQL. The _2.13 suffix is the Scala binary version of the Scala API this
-// artifact carries next to its Java one, as Scala libraries name theirs.
-include("etincelle-sql_2.13")
-project(":etincelle-sql_2.13").projectDir = file("sql")
+// SQL.
+include("etincelle-sql")
+project(":etincelle-sql").projectDir = file("sql")
