@@ -7,7 +7,8 @@ SPDX-License-Identifier: MPL-2.0 WITH AdditionRef-Progmasoft-Exception-2.0
 
 Etincelle is an engine for processing large data on the JVM, playing the part Apache Spark plays, for Java 21 and
 later and the JVM languages that call Java, such as Kotlin and Scala. Its columnar data will live in
-[Archer](https://github.com/Progmasoft/archer). The name comes from French.
+[Archer](https://github.com/Progmasoft/archer). The name comes from French: *étincelle* means spark, written
+without its accent as Etincelle.
 
 Etincelle is under development and has no release yet.
 
