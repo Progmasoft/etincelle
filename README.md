@@ -1,6 +1,6 @@
 <!--
 SPDX-FileCopyrightText: 2026 Progmasoft <support@progmasoft.com>
-SPDX-License-Identifier: MPL-2.0 WITH AdditionRef-Progmasoft-Exception-2.0
+SPDX-License-Identifier: MIT
 -->
 
 # Etincelle
@@ -39,4 +39,4 @@ Etincelle builds with any JDK from 21 on and is compiled against the Java 21 API
 
 ## License
 
-[MPL-2.0 WITH AdditionRef-Progmasoft-Exception-2.0](LICENSE.txt).
+[MIT](LICENSE.txt).

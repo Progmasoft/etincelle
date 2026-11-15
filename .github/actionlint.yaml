@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Progmasoft <support@progmasoft.com>
-# SPDX-License-Identifier: MPL-2.0 WITH AdditionRef-Progmasoft-Exception-2.0
+# SPDX-License-Identifier: MIT
 
 # GitHub-hosted runner labels that actionlint 1.7.12 does not know yet.
 self-hosted-runner:
