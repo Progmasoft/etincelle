@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2026 Progmasoft <support@progmasoft.com>
- * SPDX-License-Identifier: MPL-2.0 WITH AdditionRef-Progmasoft-Exception-2.0
+ * SPDX-License-Identifier: MIT
  */
 
 plugins {
@@ -88,7 +88,7 @@ subprojects {
                     url = "https://github.com/Progmasoft/etincelle"
                     licenses {
                         license {
-                            name = "MPL-2.0 WITH AdditionRef-Progmasoft-Exception-2.0"
+                            name = "MIT"
                             url = "https://github.com/Progmasoft/etincelle/blob/main/LICENSE.txt"
                         }
                     }
