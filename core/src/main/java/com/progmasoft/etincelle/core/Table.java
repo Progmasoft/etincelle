@@ -72,15 +72,38 @@ public final class Table {
     if (maxRows < 0) {
       throw new IllegalArgumentException("a row count is not negative: " + maxRows);
     }
+    List<List<String>> cells = cells(maxRows);
+    int[] widths = widths(cells);
+    String rule = rule(widths);
+    StringBuilder text = new StringBuilder(rule);
+    for (int i = 0; i < cells.size(); i++) {
+      line(text, cells.get(i), widths);
+      if (i == 0) {
+        text.append(rule);
+      }
+    }
+    text.append(rule);
+    long shown = cells.size() - 1;
+    if (rowCount() > shown) {
+      text.append("only the first ")
+          .append(shown)
+          .append(" of ")
+          .append(rowCount())
+          .append(" rows\n");
+    }
+    return text.toString();
+  }
+
+  /** The header, then the text of at most {@code maxRows} rows. */
+  private List<List<String>> cells(int maxRows) {
     List<List<String>> cells = new ArrayList<>();
     List<String> header = new ArrayList<>();
     for (Field field : schema.fields()) {
       header.add(field.name());
     }
     cells.add(header);
-    long shown = 0;
     for (Batch batch : batches) {
-      for (int row = 0; row < batch.rowCount() && shown < maxRows; row++, shown++) {
+      for (int row = 0; row < batch.rowCount() && cells.size() <= maxRows; row++) {
         List<String> line = new ArrayList<>();
         for (Object value : batch.row(row)) {
           line.add(value == null ? "NULL" : String.valueOf(value));
@@ -88,39 +111,38 @@ public final class Table {
         cells.add(line);
       }
     }
+    return cells;
+  }
+
+  private static int width(String cell) {
+    return cell.codePointCount(0, cell.length());
+  }
+
+  private int[] widths(List<List<String>> cells) {
     int[] widths = new int[schema.size()];
     for (List<String> line : cells) {
       for (int i = 0; i < line.size(); i++) {
-        widths[i] = Math.max(widths[i], line.get(i).codePointCount(0, line.get(i).length()));
+        widths[i] = Math.max(widths[i], width(line.get(i)));
       }
     }
-    StringBuilder text = new StringBuilder();
+    return widths;
+  }
+
+  private static String rule(int[] widths) {
     StringBuilder rule = new StringBuilder("+");
     for (int width : widths) {
       rule.append("-".repeat(width + 2)).append('+');
     }
-    text.append(rule).append('\n');
-    for (int i = 0; i < cells.size(); i++) {
-      text.append('|');
-      List<String> line = cells.get(i);
-      for (int column = 0; column < line.size(); column++) {
-        String cell = line.get(column);
-        text.append(' ')
-            .append(cell)
-            .append(" ".repeat(widths[column] - cell.codePointCount(0, cell.length())))
-            .append(" |");
-      }
-      text.append('\n');
-      if (i == 0) {
-        text.append(rule).append('\n');
-      }
+    return rule.append('\n').toString();
+  }
+
+  private static void line(StringBuilder text, List<String> cells, int[] widths) {
+    text.append('|');
+    for (int column = 0; column < cells.size(); column++) {
+      String cell = cells.get(column);
+      text.append(' ').append(cell).append(" ".repeat(widths[column] - width(cell))).append(" |");
     }
-    text.append(rule).append('\n');
-    long rows = rowCount();
-    if (rows > shown) {
-      text.append("only the first ").append(shown).append(" of ").append(rows).append(" rows\n");
-    }
-    return text.toString();
+    text.append('\n');
   }
 
   @Override

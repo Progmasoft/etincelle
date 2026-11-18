@@ -98,44 +98,53 @@ public final class Executor {
   }
 
   private static List<Batch> aggregate(Plan.Aggregate aggregate) {
-    List<Expression> keys = aggregate.keys();
-    List<AggregateCall> calls = aggregate.aggregates();
     Map<List<Object>, AggregateCall.Accumulator[]> groups = new LinkedHashMap<>();
     for (Batch batch : batches(aggregate.input())) {
-      List<Column> keyColumns = new ArrayList<>();
-      for (Expression key : keys) {
-        keyColumns.add(key.evaluate(batch));
-      }
-      List<Column> arguments = new ArrayList<>();
-      for (AggregateCall call : calls) {
-        arguments.add(call.argument() == null ? null : call.argument().evaluate(batch));
-      }
-      for (int row = 0; row < batch.rowCount(); row++) {
-        List<Object> group = new ArrayList<>(keys.size());
-        for (Column column : keyColumns) {
-          group.add(Values.normalize(column.get(row)));
-        }
-        AggregateCall.Accumulator[] state = groups.computeIfAbsent(group, g -> start(calls));
-        for (int i = 0; i < calls.size(); i++) {
-          state[i].add(arguments.get(i) == null ? null : arguments.get(i).get(row));
-        }
-      }
+      accumulate(batch, aggregate, groups);
     }
-    if (groups.isEmpty() && keys.isEmpty()) {
-      groups.put(List.of(), start(calls));
+    if (groups.isEmpty() && aggregate.keys().isEmpty()) {
+      groups.put(List.of(), start(aggregate.aggregates()));
     }
     List<Object[]> rows = new ArrayList<>(groups.size());
+    int keys = aggregate.keys().size();
     for (Map.Entry<List<Object>, AggregateCall.Accumulator[]> group : groups.entrySet()) {
-      Object[] row = new Object[keys.size() + calls.size()];
-      for (int i = 0; i < keys.size(); i++) {
+      Object[] row = new Object[keys + group.getValue().length];
+      for (int i = 0; i < keys; i++) {
         row[i] = group.getKey().get(i);
       }
-      for (int i = 0; i < calls.size(); i++) {
-        row[keys.size() + i] = group.getValue()[i].result();
+      for (int i = 0; i < group.getValue().length; i++) {
+        row[keys + i] = group.getValue()[i].result();
       }
       rows.add(row);
     }
     return toBatches(aggregate.schema(), rows);
+  }
+
+  /** Adds the rows of {@code batch} to their groups. */
+  private static void accumulate(
+      Batch batch,
+      Plan.Aggregate aggregate,
+      Map<List<Object>, AggregateCall.Accumulator[]> groups) {
+    List<Column> keyColumns = new ArrayList<>();
+    for (Expression key : aggregate.keys()) {
+      keyColumns.add(key.evaluate(batch));
+    }
+    List<AggregateCall> calls = aggregate.aggregates();
+    Column[] arguments = new Column[calls.size()];
+    for (int i = 0; i < calls.size(); i++) {
+      Expression argument = calls.get(i).argument();
+      arguments[i] = argument == null ? null : argument.evaluate(batch);
+    }
+    for (int row = 0; row < batch.rowCount(); row++) {
+      List<Object> group = new ArrayList<>(keyColumns.size());
+      for (Column column : keyColumns) {
+        group.add(Values.normalize(column.get(row)));
+      }
+      AggregateCall.Accumulator[] state = groups.computeIfAbsent(group, g -> start(calls));
+      for (int i = 0; i < arguments.length; i++) {
+        state[i].add(arguments[i] == null ? null : arguments[i].get(row));
+      }
+    }
   }
 
   private static AggregateCall.Accumulator[] start(List<AggregateCall> calls) {

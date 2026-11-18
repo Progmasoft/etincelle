@@ -66,22 +66,29 @@ public record AggregateCall(
       }
       count++;
       switch (call.kind) {
-        case SUM, AVG -> {
-          if (value instanceof Double d) {
-            floatingSum += d;
-          } else {
-            try {
-              wholeSum = Math.addExact(wholeSum, ((Number) value).longValue());
-            } catch (ArithmeticException e) {
-              throw new EvaluationException(call.offset, "BIGINT overflow in " + call.text);
-            }
-          }
-        }
-        case MIN ->
-            extreme = extreme == null || Values.compare(value, extreme) < 0 ? value : extreme;
-        case MAX ->
-            extreme = extreme == null || Values.compare(value, extreme) > 0 ? value : extreme;
+        case SUM, AVG -> addToSum(value);
+        case MIN -> keepIfBeyond(value, -1);
+        case MAX -> keepIfBeyond(value, 1);
         default -> {}
+      }
+    }
+
+    private void addToSum(Object value) {
+      if (value instanceof Double d) {
+        floatingSum += d;
+        return;
+      }
+      try {
+        wholeSum = Math.addExact(wholeSum, ((Number) value).longValue());
+      } catch (ArithmeticException e) {
+        throw new EvaluationException(call.offset, "BIGINT overflow in " + call.text);
+      }
+    }
+
+    /** Keeps {@code value} when it orders beyond the kept one: below for -1, above for 1. */
+    private void keepIfBeyond(Object value, int direction) {
+      if (extreme == null || Integer.signum(Values.compare(value, extreme)) == direction) {
+        extreme = value;
       }
     }
 

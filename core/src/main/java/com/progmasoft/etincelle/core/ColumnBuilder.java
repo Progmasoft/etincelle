@@ -12,6 +12,10 @@ import java.util.Objects;
 public final class ColumnBuilder {
   private final DataType type;
   private int size;
+
+  /** How many values the arrays have room for. */
+  private int capacity;
+
   private long[] validity;
   private int[] ints;
   private long[] longs;
@@ -26,6 +30,7 @@ public final class ColumnBuilder {
       throw new IllegalArgumentException("a capacity is not negative: " + capacity);
     }
     int room = Math.max(capacity, 8);
+    this.capacity = room;
     validity = new long[words(room)];
     switch (type) {
       case DataType.IntType t -> ints = new int[room];
@@ -157,29 +162,24 @@ public final class ColumnBuilder {
     if (built) {
       throw new IllegalStateException("the column is already built");
     }
-    int room = validity.length * 64;
-    if (size < room
-        && (ints == null || size < ints.length)
-        && (longs == null || size < longs.length)
-        && (doubles == null || size < doubles.length)
-        && (strings == null || size < strings.length)) {
+    if (size < capacity) {
       return;
     }
     if (size == Integer.MAX_VALUE - 8) {
       throw new IllegalStateException("a column holds fewer than 2^31 - 8 values");
     }
-    int next = (int) Math.min((long) size * 2, Integer.MAX_VALUE - 8);
+    resize((int) Math.min((long) size * 2, Integer.MAX_VALUE - 8));
+  }
+
+  private void resize(int next) {
+    capacity = next;
     validity = Arrays.copyOf(validity, words(next));
-    if (ints != null) {
-      ints = Arrays.copyOf(ints, next);
-    } else if (longs != null) {
-      longs = Arrays.copyOf(longs, next);
-    } else if (doubles != null) {
-      doubles = Arrays.copyOf(doubles, next);
-    } else if (booleans != null) {
-      booleans = Arrays.copyOf(booleans, words(next));
-    } else {
-      strings = Arrays.copyOf(strings, next);
+    switch (type) {
+      case DataType.IntType t -> ints = Arrays.copyOf(ints, next);
+      case DataType.LongType t -> longs = Arrays.copyOf(longs, next);
+      case DataType.DoubleType t -> doubles = Arrays.copyOf(doubles, next);
+      case DataType.BooleanType t -> booleans = Arrays.copyOf(booleans, words(next));
+      case DataType.StringType t -> strings = Arrays.copyOf(strings, next);
     }
   }
 

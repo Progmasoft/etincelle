@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Reads one SELECT of Etincelle SQL:
@@ -142,62 +143,69 @@ public final class Parser {
     return new SqlException(sql, peek().offset(), message);
   }
 
+  /** Items separated by commas, at least one. */
+  private <T> List<T> commaList(Supplier<T> item) {
+    List<T> items = new ArrayList<>();
+    do {
+      items.add(item.get());
+    } while (acceptSymbol(","));
+    return List.copyOf(items);
+  }
+
+  /** The items after {@code first BY}, or none when the clause is left out. */
+  private <T> List<T> byClause(String first, Supplier<T> item) {
+    if (!accept(first)) {
+      return List.of();
+    }
+    expect("BY");
+    return commaList(item);
+  }
+
   private Ast.Select select() {
     expect("SELECT");
     boolean distinct = accept("DISTINCT");
     accept("ALL");
-    List<Ast.SelectItem> items = new ArrayList<>();
-    do {
-      items.add(selectItem());
-    } while (acceptSymbol(","));
-    Ast.TableRef from = accept("FROM") ? tableRef() : null;
-    if (peek().is("JOIN") || (peek().is("ON"))) {
-      throw error("joins are not supported");
-    }
-    if (peek().isSymbol(",") && from != null) {
-      throw error("a query reads one table");
-    }
+    List<Ast.SelectItem> items = commaList(this::selectItem);
+    Ast.TableRef from = from();
     Ast.Expr where = accept("WHERE") ? expression() : null;
-    List<Ast.Expr> groupBy = new ArrayList<>();
-    if (accept("GROUP")) {
-      expect("BY");
-      do {
-        groupBy.add(expression());
-      } while (acceptSymbol(","));
-    }
+    List<Ast.Expr> groupBy = byClause("GROUP", this::expression);
     Ast.Expr having = accept("HAVING") ? expression() : null;
-    List<Ast.OrderItem> orderBy = new ArrayList<>();
-    if (accept("ORDER")) {
-      expect("BY");
-      do {
-        orderBy.add(orderItem());
-      } while (acceptSymbol(","));
-    }
-    Long limit = null;
-    if (accept("LIMIT")) {
-      Token count = peek();
-      if (count.kind() != Token.Kind.INTEGER) {
-        throw error("LIMIT takes a whole number; found " + describe(count));
-      }
-      take();
-      try {
-        limit = Long.parseLong(count.text());
-      } catch (NumberFormatException e) {
-        throw new SqlException(sql, count.offset(), "LIMIT " + count.text() + " is too large");
-      }
-    }
+    List<Ast.OrderItem> orderBy = byClause("ORDER", this::orderItem);
+    Long limit = limit();
     if (peek().is("UNION")) {
       throw error("UNION is not supported");
     }
-    return new Ast.Select(
-        distinct,
-        List.copyOf(items),
-        from,
-        where,
-        List.copyOf(groupBy),
-        having,
-        List.copyOf(orderBy),
-        limit);
+    return new Ast.Select(distinct, items, from, where, groupBy, having, orderBy, limit);
+  }
+
+  private Ast.TableRef from() {
+    if (!accept("FROM")) {
+      return null;
+    }
+    Ast.TableRef from = tableRef();
+    if (peek().is("JOIN") || peek().is("ON")) {
+      throw error("joins are not supported");
+    }
+    if (peek().isSymbol(",")) {
+      throw error("a query reads one table");
+    }
+    return from;
+  }
+
+  private Long limit() {
+    if (!accept("LIMIT")) {
+      return null;
+    }
+    Token count = peek();
+    if (count.kind() != Token.Kind.INTEGER) {
+      throw error("LIMIT takes a whole number; found " + describe(count));
+    }
+    take();
+    try {
+      return Long.parseLong(count.text());
+    } catch (NumberFormatException e) {
+      throw new SqlException(sql, count.offset(), "LIMIT " + count.text() + " is too large");
+    }
   }
 
   private Ast.SelectItem selectItem() {
@@ -300,12 +308,13 @@ public final class Parser {
     return predicate();
   }
 
+  private static final Set<String> COMPARISONS = Set.of("=", "<>", "!=", "<", "<=", ">", ">=");
+
   private Ast.Expr predicate() {
     Ast.Expr left = additive();
     while (true) {
       Token token = peek();
-      if (token.kind() == Token.Kind.SYMBOL
-          && Set.of("=", "<>", "!=", "<", "<=", ">", ">=").contains(token.text())) {
+      if (token.kind() == Token.Kind.SYMBOL && COMPARISONS.contains(token.text())) {
         take();
         String operator = token.text().equals("!=") ? "<>" : token.text();
         left = new Ast.Binary(operator, left, additive(), token.offset());
@@ -314,32 +323,34 @@ public final class Parser {
         boolean negated = accept("NOT");
         expect("NULL");
         left = new Ast.IsNull(left, negated, token.offset());
-      } else if (token.is("IN")
-          || token.is("BETWEEN")
-          || token.is("LIKE")
-          || (token.is("NOT")
-              && (peek(1).is("IN") || peek(1).is("BETWEEN") || peek(1).is("LIKE")))) {
-        boolean negated = accept("NOT");
-        Token word = take();
-        if (word.is("IN")) {
-          expectSymbol("(");
-          List<Ast.Expr> items = new ArrayList<>();
-          do {
-            items.add(expression());
-          } while (acceptSymbol(","));
-          expectSymbol(")");
-          left = new Ast.InList(left, List.copyOf(items), negated, token.offset());
-        } else if (word.is("BETWEEN")) {
-          Ast.Expr low = additive();
-          expect("AND");
-          left = new Ast.Between(left, low, additive(), negated, token.offset());
-        } else {
-          left = new Ast.Like(left, additive(), negated, token.offset());
-        }
+      } else if (isSetPredicate(token) || (token.is("NOT") && isSetPredicate(peek(1)))) {
+        left = setPredicate(left, token.offset());
       } else {
         return left;
       }
     }
+  }
+
+  private static boolean isSetPredicate(Token token) {
+    return token.is("IN") || token.is("BETWEEN") || token.is("LIKE");
+  }
+
+  /** [NOT] IN (...), [NOT] BETWEEN ... AND ... or [NOT] LIKE ... after {@code left}. */
+  private Ast.Expr setPredicate(Ast.Expr left, int offset) {
+    boolean negated = accept("NOT");
+    Token word = take();
+    if (word.is("IN")) {
+      expectSymbol("(");
+      List<Ast.Expr> items = commaList(this::expression);
+      expectSymbol(")");
+      return new Ast.InList(left, items, negated, offset);
+    }
+    if (word.is("BETWEEN")) {
+      Ast.Expr low = additive();
+      expect("AND");
+      return new Ast.Between(left, low, additive(), negated, offset);
+    }
+    return new Ast.Like(left, additive(), negated, offset);
   }
 
   private Ast.Expr additive() {
@@ -407,30 +418,9 @@ public final class Parser {
 
   private Ast.Expr wordOrName(Token token) {
     if (token.kind() == Token.Kind.WORD) {
-      if (accept("TRUE")) {
-        return new Ast.BooleanLiteral(true, token.offset());
-      }
-      if (accept("FALSE")) {
-        return new Ast.BooleanLiteral(false, token.offset());
-      }
-      if (accept("NULL")) {
-        return new Ast.NullLiteral(token.offset());
-      }
-      if (accept("CASE")) {
-        return caseExpression(token.offset());
-      }
-      if (token.is("CAST") && peek(1).isSymbol("(")) {
-        take();
-        take();
-        Ast.Expr operand = expression();
-        expect("AS");
-        Token type = peek();
-        if (type.kind() != Token.Kind.WORD) {
-          throw error("a type is expected; found " + describe(type));
-        }
-        take();
-        expectSymbol(")");
-        return new Ast.Cast(operand, type.text(), type.offset(), token.offset());
+      Ast.Expr keyword = keywordExpression(token);
+      if (keyword != null) {
+        return keyword;
       }
       if (!isNameToken(token)) {
         throw error("an expression is expected; found " + describe(token));
@@ -439,6 +429,41 @@ public final class Parser {
         return call();
       }
     }
+    return name(token);
+  }
+
+  /** TRUE, FALSE, NULL, CASE or CAST at {@code token}, or {@code null} for none of them. */
+  private Ast.Expr keywordExpression(Token token) {
+    if (accept("TRUE") || accept("FALSE")) {
+      return new Ast.BooleanLiteral(token.is("TRUE"), token.offset());
+    }
+    if (accept("NULL")) {
+      return new Ast.NullLiteral(token.offset());
+    }
+    if (accept("CASE")) {
+      return caseExpression(token.offset());
+    }
+    if (token.is("CAST") && peek(1).isSymbol("(")) {
+      return cast(token);
+    }
+    return null;
+  }
+
+  private Ast.Expr cast(Token token) {
+    take();
+    take();
+    Ast.Expr operand = expression();
+    expect("AS");
+    Token type = peek();
+    if (type.kind() != Token.Kind.WORD) {
+      throw error("a type is expected; found " + describe(type));
+    }
+    take();
+    expectSymbol(")");
+    return new Ast.Cast(operand, type.text(), type.offset(), token.offset());
+  }
+
+  private Ast.Expr name(Token token) {
     List<String> parts = new ArrayList<>();
     parts.add(take().text());
     while (peek().isSymbol(".")) {

@@ -34,9 +34,6 @@ public final class Session {
   private final Map<String, Catalog.Entry> tables = new LinkedHashMap<>();
   private final Catalog catalog = name -> Optional.ofNullable(tables.get(key(name)));
 
-  /** A session with no tables. */
-  public Session() {}
-
   private static String key(String name) {
     return name.toLowerCase(Locale.ROOT);
   }

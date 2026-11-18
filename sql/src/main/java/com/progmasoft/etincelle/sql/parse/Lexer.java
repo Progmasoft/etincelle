@@ -64,75 +64,99 @@ public final class Lexer {
     }
   }
 
-  private Token next() {
-    int start = at;
-    char c = sql.charAt(at);
-    if (c == '_' || Character.isLetter(c)) {
-      while (at < sql.length()
-          && (sql.charAt(at) == '_' || Character.isLetterOrDigit(sql.charAt(at)))) {
-        at++;
-      }
-      return new Token(Token.Kind.WORD, sql.substring(start, at), start);
-    }
-    if (c >= '0' && c <= '9'
-        || (c == '.' && at + 1 < sql.length() && isDigit(sql.charAt(at + 1)))) {
-      return number(start);
-    }
-    if (c == '\'') {
-      return quoted(start, '\'', Token.Kind.STRING, "the string is not closed");
-    }
-    if (c == '`') {
-      Token name = quoted(start, '`', Token.Kind.QUOTED, "the backquote is not closed");
-      if (name.text().isEmpty()) {
-        throw new SqlException(sql, start, "a name is not empty");
-      }
-      return name;
-    }
-    for (String symbol : SYMBOLS) {
-      if (sql.startsWith(symbol, at)) {
-        at += symbol.length();
-        return new Token(Token.Kind.SYMBOL, symbol, start);
-      }
-    }
-    throw new SqlException(sql, start, "unexpected character '" + c + "'");
+  /** The character at {@code index}, or 0 past the end, so a look ahead needs no bounds check. */
+  private char charAt(int index) {
+    return index < sql.length() ? sql.charAt(index) : 0;
   }
 
   private static boolean isDigit(char c) {
     return c >= '0' && c <= '9';
   }
 
-  private Token number(int start) {
-    boolean decimal = false;
-    while (at < sql.length() && isDigit(sql.charAt(at))) {
+  private static boolean isWordStart(char c) {
+    return c == '_' || Character.isLetter(c);
+  }
+
+  private Token next() {
+    char c = sql.charAt(at);
+    if (isWordStart(c)) {
+      return word();
+    }
+    if (isDigit(c) || (c == '.' && isDigit(charAt(at + 1)))) {
+      return number();
+    }
+    if (c == '\'') {
+      return quoted(at, '\'', Token.Kind.STRING, "the string is not closed");
+    }
+    if (c == '`') {
+      return backquoted();
+    }
+    return symbol();
+  }
+
+  private Token word() {
+    int start = at;
+    while (isWordStart(charAt(at)) || Character.isDigit(charAt(at))) {
       at++;
     }
-    if (at < sql.length() && sql.charAt(at) == '.') {
+    return new Token(Token.Kind.WORD, sql.substring(start, at), start);
+  }
+
+  private Token backquoted() {
+    int start = at;
+    Token name = quoted(start, '`', Token.Kind.QUOTED, "the backquote is not closed");
+    if (name.text().isEmpty()) {
+      throw new SqlException(sql, start, "a name is not empty");
+    }
+    return name;
+  }
+
+  private Token symbol() {
+    for (String symbol : SYMBOLS) {
+      if (sql.startsWith(symbol, at)) {
+        int start = at;
+        at += symbol.length();
+        return new Token(Token.Kind.SYMBOL, symbol, start);
+      }
+    }
+    throw new SqlException(sql, at, "unexpected character '" + sql.charAt(at) + "'");
+  }
+
+  private void skipDigits() {
+    while (isDigit(charAt(at))) {
+      at++;
+    }
+  }
+
+  private Token number() {
+    int start = at;
+    skipDigits();
+    boolean decimal = false;
+    if (charAt(at) == '.') {
       decimal = true;
       at++;
-      while (at < sql.length() && isDigit(sql.charAt(at))) {
-        at++;
-      }
+      skipDigits();
     }
-    if (at < sql.length() && (sql.charAt(at) == 'e' || sql.charAt(at) == 'E')) {
-      int mark = at;
-      at++;
-      if (at < sql.length() && (sql.charAt(at) == '+' || sql.charAt(at) == '-')) {
-        at++;
-      }
-      if (at < sql.length() && isDigit(sql.charAt(at))) {
-        decimal = true;
-        while (at < sql.length() && isDigit(sql.charAt(at))) {
-          at++;
-        }
-      } else {
-        at = mark;
-      }
-    }
-    if (at < sql.length() && (sql.charAt(at) == '_' || Character.isLetter(sql.charAt(at)))) {
+    decimal |= exponent();
+    if (isWordStart(charAt(at))) {
       throw new SqlException(sql, at, "a number is followed by a letter");
     }
     return new Token(
         decimal ? Token.Kind.DECIMAL : Token.Kind.INTEGER, sql.substring(start, at), start);
+  }
+
+  /** Reads an exponent, such as e10 or E-3, if one follows; an e without digits is left alone. */
+  private boolean exponent() {
+    if (charAt(at) != 'e' && charAt(at) != 'E') {
+      return false;
+    }
+    int digits = charAt(at + 1) == '+' || charAt(at + 1) == '-' ? at + 2 : at + 1;
+    if (!isDigit(charAt(digits))) {
+      return false;
+    }
+    at = digits;
+    skipDigits();
+    return true;
   }
 
   private Token quoted(int start, char quote, Token.Kind kind, String unclosed) {

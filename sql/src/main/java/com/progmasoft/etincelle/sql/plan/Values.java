@@ -6,6 +6,7 @@
 package com.progmasoft.etincelle.sql.plan;
 
 import com.progmasoft.etincelle.core.DataType;
+import java.util.Arrays;
 import java.util.Locale;
 
 /** The rules values follow: order, equality, casts and LIKE. */
@@ -32,24 +33,18 @@ public final class Values {
    * equal to itself and above every other number; strings by code point; false before true.
    */
   public static int compare(Object a, Object b) {
-    if (a instanceof Integer x && b instanceof Integer y) {
-      return Integer.compare(x, y);
-    }
-    if (a instanceof Long x && b instanceof Long y) {
-      return Long.compare(x, y);
-    }
-    if (a instanceof Double x && b instanceof Double y) {
-      double p = x;
-      double q = y;
-      return p == q ? 0 : Double.compare(p, q);
-    }
-    if (a instanceof String x && b instanceof String y) {
-      return compareCodePoints(x, y);
-    }
-    if (a instanceof Boolean x && b instanceof Boolean y) {
-      return Boolean.compare(x, y);
-    }
-    throw new IllegalArgumentException("cannot compare " + a + " with " + b);
+    return switch (a) {
+      case Integer x -> Integer.compare(x, (Integer) b);
+      case Long x -> Long.compare(x, (Long) b);
+      case Double x -> compareDoubles(x, (Double) b);
+      case String x -> compareCodePoints(x, (String) b);
+      case Boolean x -> Boolean.compare(x, (Boolean) b);
+      default -> throw new IllegalArgumentException("cannot compare " + a + " with " + b);
+    };
+  }
+
+  private static int compareDoubles(double a, double b) {
+    return a == b ? 0 : Double.compare(a, b);
   }
 
   private static int compareCodePoints(String a, String b) {
@@ -150,22 +145,26 @@ public final class Values {
       case Integer i -> i;
       case Long l -> l;
       case Boolean b -> b ? 1L : 0L;
-      case Double d -> {
-        double truncated = d < 0 ? Math.ceil(d) : Math.floor(d);
-        if (d.isNaN() || truncated < -0x1p63 || truncated >= 0x1p63) {
-          throw new EvaluationException(offset, d + " is out of the range of BIGINT");
-        }
-        yield (long) truncated;
-      }
-      case String s -> {
-        try {
-          yield Long.parseLong(s.trim());
-        } catch (NumberFormatException e) {
-          throw new EvaluationException(offset, "'" + s + "' is not a whole number");
-        }
-      }
+      case Double d -> truncate(d, offset);
+      case String s -> parseWhole(s, offset);
       default -> throw new IllegalArgumentException("no cast from " + value);
     };
+  }
+
+  private static long truncate(double value, int offset) {
+    double truncated = value < 0 ? Math.ceil(value) : Math.floor(value);
+    if (Double.isNaN(value) || truncated < -0x1p63 || truncated >= 0x1p63) {
+      throw new EvaluationException(offset, value + " is out of the range of BIGINT");
+    }
+    return (long) truncated;
+  }
+
+  private static long parseWhole(String text, int offset) {
+    try {
+      return Long.parseLong(text.trim());
+    } catch (NumberFormatException e) {
+      throw new EvaluationException(offset, "'" + text + "' is not a whole number");
+    }
   }
 
   /**
@@ -176,18 +175,18 @@ public final class Values {
    */
   public static boolean like(String text, String pattern, int offset) {
     int[] t = text.codePoints().toArray();
-    int[] p = pattern.codePoints().toArray();
+    int[] p = likeTokens(pattern, offset);
     // The positions in the pattern after the last %, and in the text where it then stood.
     int ti = 0;
     int pi = 0;
     int starPattern = -1;
     int starText = -1;
     while (ti < t.length) {
-      if (pi < p.length && p[pi] == '%') {
+      if (pi < p.length && p[pi] == ANY_RUN) {
         starPattern = ++pi;
         starText = ti;
-      } else if (pi < p.length && matchesOne(p, pi, t[ti], offset)) {
-        pi += p[pi] == '\\' ? 2 : 1;
+      } else if (pi < p.length && (p[pi] == ANY_ONE || p[pi] == t[ti])) {
+        pi++;
         ti++;
       } else if (starPattern >= 0) {
         pi = starPattern;
@@ -196,22 +195,33 @@ public final class Values {
         return false;
       }
     }
-    while (pi < p.length && p[pi] == '%') {
+    while (pi < p.length && p[pi] == ANY_RUN) {
       pi++;
-    }
-    if (pi < p.length && p[pi] == '\\' && pi + 1 == p.length) {
-      throw new EvaluationException(offset, "a LIKE pattern does not end in \\");
     }
     return pi == p.length;
   }
 
-  private static boolean matchesOne(int[] pattern, int at, int character, int offset) {
-    if (pattern[at] == '\\') {
-      if (at + 1 == pattern.length) {
-        throw new EvaluationException(offset, "a LIKE pattern does not end in \\");
+  /** A % of a LIKE pattern, among its code points. */
+  private static final int ANY_RUN = -1;
+
+  /** A _ of a LIKE pattern, among its code points. */
+  private static final int ANY_ONE = -2;
+
+  /** The code points of a LIKE pattern, with ANY_RUN and ANY_ONE for the % and _ not escaped. */
+  private static int[] likeTokens(String pattern, int offset) {
+    int[] points = pattern.codePoints().toArray();
+    int[] tokens = new int[points.length];
+    int count = 0;
+    for (int i = 0; i < points.length; i++) {
+      if (points[i] == '\\') {
+        if (++i == points.length) {
+          throw new EvaluationException(offset, "a LIKE pattern does not end in \\");
+        }
+        tokens[count++] = points[i];
+      } else {
+        tokens[count++] = points[i] == '%' ? ANY_RUN : points[i] == '_' ? ANY_ONE : points[i];
       }
-      return pattern[at + 1] == character;
     }
-    return pattern[at] == '_' || pattern[at] == character;
+    return Arrays.copyOf(tokens, count);
   }
 }
