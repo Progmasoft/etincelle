@@ -66,6 +66,9 @@ public final class Parser {
           "UNION",
           "ALL");
 
+  /** The comparison operators; != is read as <>. */
+  private static final Set<String> COMPARISONS = Set.of("=", "<>", "!=", "<", "<=", ">", ">=");
+
   private final String sql;
   private final List<Token> tokens;
   private int at;
@@ -307,8 +310,6 @@ public final class Parser {
     }
     return predicate();
   }
-
-  private static final Set<String> COMPARISONS = Set.of("=", "<>", "!=", "<", "<=", ">", ">=");
 
   private Ast.Expr predicate() {
     Ast.Expr left = additive();
